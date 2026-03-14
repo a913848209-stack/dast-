@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DAST 扫描启动器</title>
+  <style>
+    :root { --bg: #1a1d23; --card: #242830; --accent: #3b82f6; --text: #e2e8f0; --muted: #94a3b8; }
+    * { box-sizing: border-box; }
+    body { font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; line-height: 1.6; }
+    .container { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+    section { background: var(--card); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    section h2 { font-size: 1rem; margin: 0 0 12px 0; color: var(--accent); }
+    label { display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--muted); }
+    input[type="text"], input[type="number"], select { width: 100%; padding: 10px 12px; border: 1px solid #334155; border-radius: 8px; background: #0f172a; color: var(--text); font-size: 0.95rem; margin-bottom: 12px; }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .row > * { flex: 1 1 200px; }
+    .cmd-box { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; font-family: ui-monospace, monospace; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; margin-top: 12px; min-height: 80px; }
+    .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; border: none; font-size: 0.9rem; cursor: pointer; margin-right: 8px; margin-top: 8px; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-secondary { background: #334155; color: var(--text); }
+    .btn-secondary:hover { background: #475569; }
+    .tip { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+    .advanced { margin-top: 16px; padding-top: 16px; border-top: 1px solid #334155; }
+    .advanced summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+    .chk { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .chk input { width: auto; margin: 0; }
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--card); border: 1px solid var(--accent); padding: 12px 20px; border-radius: 8px; font-size: 0.9rem; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>DAST 扫描启动器</h1>
+    <p class="subtitle">填写下方参数后，复制命令到终端执行，或按系统下载可执行文件：Mac（.command）、Windows（.bat）、Linux（.sh）。请求头从当前目录 dast_headers.txt / headers.txt 自动读取。</p>
+
+    <section>
+      <h2>必填</h2>
+      <label>目标 URL</label>
+      <input type="text" id="target" placeholder="https://example.com/" value="">
+      <label>扫描模式</label>
+      <select id="mode">
+        <option value="fast">fast — 仅头/路径/信息泄露，不做注入与 XSS</option>
+        <option value="standard" selected>standard — 全量单页</option>
+        <option value="deep">deep — 全量 + 爬虫 2 层 / 50 页</option>
+      </select>
+    </section>
+
+    <section>
+      <h2>可选参数</h2>
+      <div class="row">
+        <div>
+          <label>请求超时（秒）</label>
+          <input type="number" id="timeout" value="10" min="1" max="120">
+        </div>
+        <div>
+          <label>请求头文件路径（空则用当前目录 dast_headers.txt）</label>
+          <input type="text" id="headersFile" placeholder="留空或填路径">
+        </div>
+      </div>
+      <label>补充 URL 列表文件（SPA 可填，每行一个 URL）</label>
+      <input type="text" id="urlList" placeholder="如 urls.txt">
+      <label>爬虫作用域前缀（仅 deep 时有效）</label>
+      <input type="text" id="scopePrefix" placeholder="如 https://example.com/app">
+    </section>
+
+    <section>
+      <h2>运行方式</h2>
+      <label>脚本路径（建议填与 dast_scanner.py 同目录的路径，便于 .command 使用）</label>
+      <input type="text" id="scriptPath" placeholder="dast_scanner.py 或绝对路径" value="dast_scanner.py">
+      <label>工作目录（下载 .command 时会先 cd 到此目录；留空则使用 .command 所在目录）</label>
+      <input type="text" id="workDir" placeholder="如 /Users/xxx/Desktop/dast扫描脚本">
+      <p class="tip">生成的命令会使用您填写的脚本路径；下载的可执行文件会先 cd 到「工作目录」再执行，确保能找到 dast_headers.txt 和 dast_scanner.py。Windows 下若提示找不到 python，可改为 py 或填写 python.exe 的完整路径。</p>
+    </section>
+
+    <section class="advanced">
+      <details>
+        <summary>高级：跳过部分检测</summary>
+        <div class="chk"><input type="checkbox" id="skipHeaders"> <label for="skipHeaders" style="margin:0">跳过安全头</label></div>
+        <div class="chk"><input type="checkbox" id="skipInjection"> <label for="skipInjection" style="margin:0">跳过注入</label></div>
+        <div class="chk"><input type="checkbox" id="skipPaths"> <label for="skipPaths" style="margin:0">跳过敏感路径</label></div>
+        <div class="chk"><input type="checkbox" id="skipCors"> <label for="skipCors" style="margin:0">跳过 CORS</label></div>
+        <div class="chk"><input type="checkbox" id="skipMethods"> <label for="skipMethods" style="margin:0">跳过 HTTP 方法</label></div>
+        <div class="chk"><input type="checkbox" id="skipXss"> <label for="skipXss" style="margin:0">跳过 XSS</label></div>
+        <div class="chk"><input type="checkbox" id="skipInfo"> <label for="skipInfo" style="margin:0">跳过信息泄露</label></div>
+        <div class="chk"><input type="checkbox" id="skipRedirect"> <label for="skipRedirect" style="margin:0">跳过开放重定向</label></div>
+        <div class="chk"><input type="checkbox" id="skipHttps"> <label for="skipHttps" style="margin:0">跳过 HTTPS 检查</label></div>
+      </details>
+    </section>
+
+    <section>
+      <h2>生成命令</h2>
+      <button class="btn btn-primary" id="btnRefresh">刷新命令</button>
+      <div class="cmd-box" id="cmdBox" role="textbox">填写目标 URL 后点击「刷新命令」</div>
+      <button class="btn btn-primary" id="btnCopy">复制命令</button>
+      <span class="tip" style="display:block;margin-top:8px">按系统下载后运行：</span>
+      <button class="btn btn-secondary" id="btnDownload">Mac（.command 双击）</button>
+      <button class="btn btn-secondary" id="btnDownloadBat">Windows（.bat 双击）</button>
+      <button class="btn btn-secondary" id="btnDownloadSh">Linux（.sh 需 chmod +x 后执行）</button>
+    </section>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    function $(id) { return document.getElementById(id); }
+    function buildCmd() {
+      const target = ($('target').value || '').trim();
+      if (!target) return '请先填写「目标 URL」';
+      const mode = $('mode').value;
+      const timeout = $('timeout').value;
+      const headersFile = ($('headersFile').value || '').trim();
+      const urlList = ($('urlList').value || '').trim();
+      const scopePrefix = ($('scopePrefix').value || '').trim();
+      const scriptPath = ($('scriptPath').value || 'dast_scanner.py').trim() || 'dast_scanner.py';
+      const parts = ['python3', scriptPath, target, '--mode', mode, '--timeout', timeout];
+      if (headersFile) parts.push('--headers-file', quote(headersFile));
+      if (urlList) parts.push('--url-list', quote(urlList));
+      if (scopePrefix) parts.push('--scope-prefix', quote(scopePrefix));
+      if ($('skipHeaders').checked) parts.push('--skip-headers');
+      if ($('skipInjection').checked) parts.push('--skip-injection');
+      if ($('skipPaths').checked) parts.push('--skip-paths');
+      if ($('skipCors').checked) parts.push('--skip-cors');
+      if ($('skipMethods').checked) parts.push('--skip-methods');
+      if ($('skipXss').checked) parts.push('--skip-xss');
+      if ($('skipInfo').checked) parts.push('--skip-info');
+      if ($('skipRedirect').checked) parts.push('--skip-redirect');
+      if ($('skipHttps').checked) parts.push('--skip-https');
+      return parts.join(' ');
+    }
+    function quote(s) {
+      if (/^[A-Za-z0-9/_.-]+$/.test(s)) return s;
+      return "'" + s.replace(/'/g, "'\\''") + "'";
+    }
+    function showToast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(function() { el.classList.remove('show'); }, 2000);
+    }
+    $('btnRefresh').onclick = function() {
+      $('cmdBox').textContent = buildCmd();
+    };
+    $('btnCopy').onclick = function() {
+      const cmd = buildCmd();
+      if (cmd.startsWith('请先')) { showToast(cmd); return; }
+      navigator.clipboard.writeText(cmd).then(function() { showToast('已复制到剪贴板'); }, function() { showToast('复制失败，请手动选择上方命令复制'); });
+    };
+    $('btnDownload').onclick = function() {
+      const cmd = buildCmd();
+      if (cmd.startsWith('请先')) { showToast(cmd); return; }
+      const workDir = ($('workDir').value || '').trim();
+      const scriptPath = ($('scriptPath').value || 'dast_scanner.py').trim() || 'dast_scanner.py';
+      let body = '#!/bin/bash\nset -e\n';
+      if (workDir) body += 'cd ' + quote(workDir) + '\n';
+      else body += 'cd "$(dirname "$0")"\n';
+      var runCmd = cmd.replace(/^python3\s+\S+/, 'python3 ' + (workDir ? scriptPath : quote(scriptPath)));
+      body += runCmd + '\n';
+      const blob = new Blob([body], { type: 'application/x-sh' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'dast_scan.command';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showToast('已下载 dast_scan.command，请放到脚本同目录后双击运行（Mac）');
+    };
+    $('btnDownloadBat').onclick = function() {
+      const cmd = buildCmd();
+      if (cmd.startsWith('请先')) { showToast(cmd); return; }
+      const workDir = ($('workDir').value || '').trim();
+      const scriptPath = ($('scriptPath').value || 'dast_scanner.py').trim() || 'dast_scanner.py';
+      var runCmd = 'python ' + cmd.replace(/^python3\s+\S+/, scriptPath);
+      if (scriptPath.indexOf(' ') >= 0) runCmd = 'python "' + scriptPath.replace(/"/g, '""') + '"' + cmd.substring(cmd.indexOf(scriptPath) + scriptPath.length);
+      var body = '@echo off\r\n';
+      if (workDir) body += 'cd /d "' + workDir.replace(/"/g, '""') + '"\r\n';
+      else body += 'cd /d "%~dp0"\r\n';
+      body += runCmd + '\r\npause\r\n';
+      const blob = new Blob([body], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'dast_scan.bat';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showToast('已下载 dast_scan.bat，请放到脚本同目录后双击运行（Windows）');
+    };
+    $('btnDownloadSh').onclick = function() {
+      const cmd = buildCmd();
+      if (cmd.startsWith('请先')) { showToast(cmd); return; }
+      const workDir = ($('workDir').value || '').trim();
+      const scriptPath = ($('scriptPath').value || 'dast_scanner.py').trim() || 'dast_scanner.py';
+      let body = '#!/bin/bash\nset -e\n';
+      if (workDir) body += 'cd ' + quote(workDir) + '\n';
+      else body += 'cd "$(dirname "$0")"\n';
+      var runCmd = cmd.replace(/^python3\s+\S+/, 'python3 ' + (workDir ? scriptPath : quote(scriptPath)));
+      body += runCmd + '\n';
+      const blob = new Blob([body], { type: 'application/x-sh' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'dast_scan.sh';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showToast('已下载 dast_scan.sh，Linux 下执行: chmod +x dast_scan.sh && ./dast_scan.sh');
+    };
+    ['target','mode','timeout','headersFile','urlList','scopePrefix','scriptPath'].forEach(function(id) {
+      var el = $(id); if (el) el.addEventListener('input', function() { $('cmdBox').textContent = buildCmd(); });
+    });
+    $('mode').addEventListener('change', function() { $('cmdBox').textContent = buildCmd(); });
+    document.querySelectorAll('.advanced input').forEach(function(inp) {
+      inp.addEventListener('change', function() { $('cmdBox').textContent = buildCmd(); });
+    });
+    $('btnRefresh').click();
+  </script>
+</body>
+</html>
